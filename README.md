@@ -75,16 +75,6 @@ Known Issues
 - No SPI auto‑speed fallback
 - No card health metrics (erase block size, CSD/SCR parsing)
 
-Hardware
-M5Stack Cardputer‑ADV (StampS3A)
-Dedicated HSPI pins:
-|  |  | 
-|  |  | 
-|  |  | 
-|  |  | 
-|  |  | 
-
-
 
 Build Instructions (PlatformIO)
 - Install PlatformIO (VSCode recommended)
@@ -93,10 +83,6 @@ Build Instructions (PlatformIO)
 - Build & upload using PlatformIO: Upload
 - Insert an SD card and reboot the Cardputer‑ADV
 
-
-
-License
-MIT (or choose your preferred license)
 
 Contributions
 Bug reports, test results, and pull requests are welcome.
