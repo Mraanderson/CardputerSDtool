@@ -18,15 +18,15 @@ This project provides a standalone SD card utility offering:
 | Feature               | Status            | Notes                                           |
 |-----------------------|-------------------|-------------------------------------------------|
 | SD Card Information   | Stable            | Manufacturer lookup, PNM, capacity, CID fields  |
-|                       | Partially reliable| Occasional SD re-init failures after format     | 🔴
-| Speed Test            | Partially reliable| Write speed then needs freezes and needs reset  | 🔴
-| Integrity Check       | Known issues      | Slow; no progress bar                           | 🔴
-| Quick Format          | Stable            | SdFat quick format + automatic remount          | 🟡
-| Reboot                | Stable            |                                                 | 🟢
-| Navigation / UI       | Stable            | Scroll speed may feel fast                      | 🟢
-| SPI Stability         | Uncertain         | Varies by card brand and age                    | 🟡
-| Card Health Metrics   | Not implemented   | CSD/SCR parsing planned                         | ⚪
-| Filesystem Detection  | Needs testing     | exFAT depends on SdFat configuration            | 🟡
+|                       | Partially reliable 🔴| Occasional SD re-init failures after format     | 
+| Speed Test            | Partially reliable 🔴| Write speed then needs freezes and needs reset  |
+| Integrity Check       | Known issues   🔴   | Slow; no progress bar                           | 
+| Quick Format          | Stable      🟡      | SdFat quick format + automatic remount          | 
+| Reboot                | Stable       🟢      |                                                 |
+| Navigation / UI       | Stable         🟢    | Scroll speed may feel fast                      |
+| SPI Stability         | Uncertain    🟡     | Varies by card brand and age                    | 
+| Card Health Metrics   | Not implemented  ⚪  | CSD/SCR parsing planned                         |
+| Filesystem Detection  | Needs testing  🟡    | exFAT depends on SdFat configuration            |
 
 Legend:
 🟢 Stable 🟡 Needs testing 🔴 Known issues ⚪ Not implemented
