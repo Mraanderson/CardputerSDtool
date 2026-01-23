@@ -19,12 +19,13 @@ SdFat sd;
 SPIClass sdSpi(HSPI);
 
 // --- Key helpers ---
-inline bool isUp(char k)    { return k == 'w' || k == ';'; }
-inline bool isDown(char k)  { return k == 's' || k == '.'; }
+// Up/Down only on ';' and '.'
+inline bool isUp(char k)    { return k == ';'; }
+inline bool isDown(char k)  { return k == '.'; }
 
 // Only scan keys we actually use
 char pollKey() {
-    const char keys[] = { 'w', 's', ';', '.', 0 };
+    const char keys[] = { ';', '.', 0 };
     for (int i = 0; keys[i]; i++) {
         if (M5Cardputer.Keyboard.isKeyPressed(keys[i])) {
             return keys[i];
@@ -73,29 +74,36 @@ void loop() {
         if (isUp(key)) {
             menuIndex = (menuIndex + 4) % 5;
             drawMenu();
-            delay(300);
+            delay(150);
         }
 
         if (isDown(key)) {
             menuIndex = (menuIndex + 1) % 5;
             drawMenu();
-            delay(300);
+            delay(150);
         }
 
         if (M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
+            // Debounce ENTER before entering a submenu
+            while (M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
+                M5Cardputer.update();
+                delay(10);
+            }
+
             switch (menuIndex) {
-                case 0: currentState = INFO;   showCardInfo(); break;
-                case 1: currentState = SPEED;  runSpeedTest(); break;
+                case 0: currentState = INFO;   showCardInfo();      break;
+                case 1: currentState = SPEED;  runSpeedTest();      break;
                 case 2: currentState = H2TEST; runIntegrityCheck(); break;
-                case 3: currentState = FORMAT; runFormat(); break;
-                case 4: ESP.restart(); break;
+                case 3: currentState = FORMAT; runFormat();         break;
+                case 4: ESP.restart();                               break;
             }
         }
 
     } else if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
+        // BACKSPACE is a global "abort to menu"
         currentState = MENU;
         drawMenu();
-        delay(300);
+        delay(150);
     }
 }
 
@@ -105,6 +113,7 @@ void drawMenu() {
     M5.Display.fillScreen(TFT_BLACK);
     M5.Display.setCursor(0, 0);
     M5.Display.println("=== SD TOOL ADV ===");
+    M5.Display.println("ENTER: select/back  BKSP: abort\n");
 
     for (int i = 0; i < 5; i++) {
         bool sel = (i == menuIndex);
@@ -148,12 +157,12 @@ void showCardInfo() {
     // --- Manufacturer lookup ---
     const char* maker = "Unknown";
     switch (cid.mid) {
-        case 0x03: maker = "SanDisk"; break;
-        case 0x1B: maker = "Samsung"; break;
-        case 0x1D: maker = "Kingston"; break;
-        case 0x27: maker = "Phison"; break;
-        case 0x28: maker = "Lexar"; break;
-        case 0x31: maker = "Silicon Power"; break;
+        case 0x03: maker = "SanDisk";        break;
+        case 0x1B: maker = "Samsung";        break;
+        case 0x1D: maker = "Kingston";       break;
+        case 0x27: maker = "Phison";         break;
+        case 0x28: maker = "Lexar";          break;
+        case 0x31: maker = "Silicon Power";  break;
     }
 
     // --- Card size ---
@@ -167,12 +176,14 @@ void showCardInfo() {
 
     M5.Display.printf("Capacity: %llu MB\n", sizeMB);
 
-    // ⭐️ --- Filesystem type (your requested snippet) ---
+    // Filesystem type
     uint8_t fs = sd.vol()->fatType();
     if (fs == 32)
         M5.Display.println("Filesystem: FAT32 (OK)");
-    else if (fs == 0xEF)   // exFAT volume type code
-    M5.Display.println("Filesystem: exFAT");
+    else if (fs == 16)
+        M5.Display.println("Filesystem: FAT16");
+    else if (fs == 12)
+        M5.Display.println("Filesystem: FAT12");
     else
         M5.Display.println("Filesystem: Unknown / Not Mounted");
 
@@ -180,16 +191,7 @@ void showCardInfo() {
     M5.Display.printf("\nMID: 0x%02X\n", cid.mid);
     M5.Display.printf("OID: %c%c\n", cid.oid[0], cid.oid[1]);
 
-    M5.Display.println("\nPress ENTER to return");
-
-    // Wait for ENTER instead of Backspace
-    while (!M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
-        M5Cardputer.update();
-        delay(10);
-    }
-
-    currentState = MENU;
-    drawMenu();
+    waitForInput();
 }
 
 // --- Speed Test ---
@@ -197,22 +199,37 @@ void showCardInfo() {
 void runSpeedTest() {
     M5.Display.fillScreen(TFT_BLACK);
     M5.Display.setCursor(0, 0);
+    M5.Display.println("Speed Test\n");
 
-    if (!initSD()) { waitForInput(); return; }
+    if (!initSD()) { 
+        waitForInput(); 
+        return; 
+    }
 
     static uint8_t buf[4096];
     SdFile f;
-    f.open("spd.tmp", O_RDWR | O_CREAT | O_TRUNC);
+    if (!f.open("spd.tmp", O_RDWR | O_CREAT | O_TRUNC)) {
+        M5.Display.setTextColor(TFT_RED, TFT_BLACK);
+        M5.Display.println("Open spd.tmp failed");
+        waitForInput();
+        return;
+    }
 
     uint32_t s = millis();
-    for (int i = 0; i < 1280; i++) f.write(buf, 4096);
+    for (int i = 0; i < 1280; i++) {
+        f.write(buf, 4096);
+    }
     f.sync();
-    M5.Display.printf("Write: %.2f MB/s\n", 5.0 / ((millis() - s) / 1000.0));
+    float writeTime = (millis() - s) / 1000.0f;
+    M5.Display.printf("Write: %.2f MB/s\n", 5.0f / writeTime);
 
     f.rewind();
     s = millis();
-    while (f.read(buf, 4096) > 0) {}
-    M5.Display.printf("Read: %.2f MB/s\n", 5.0 / ((millis() - s) / 1000.0));
+    while (f.read(buf, 4096) > 0) {
+        // could add M5Cardputer.update() here if needed
+    }
+    float readTime = (millis() - s) / 1000.0f;
+    M5.Display.printf("Read:  %.2f MB/s\n", 5.0f / readTime);
 
     f.close();
     sd.remove("spd.tmp");
@@ -225,53 +242,86 @@ void runSpeedTest() {
 void runIntegrityCheck() {
     M5.Display.fillScreen(TFT_BLACK);
     M5.Display.setCursor(0, 0);
-    M5.Display.println("Press ENTER to start (50MB limit)");
+    M5.Display.println("Integrity Check (50MB)\n");
+    M5.Display.println("ENTER: start   BKSP: abort");
 
+    // Wait for ENTER to start or BACKSPACE to abort
     while (!M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
         M5Cardputer.update();
         if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
             currentState = MENU;
+            drawMenu();
             return;
         }
+        delay(10);
     }
 
-    if (!initSD()) { waitForInput(); return; }
+    // Debounce ENTER
+    while (M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
+        M5Cardputer.update();
+        delay(10);
+    }
+
+    if (!initSD()) { 
+        waitForInput(); 
+        return; 
+    }
 
     SdFile f;
-    f.open("test.h2w", O_RDWR | O_CREAT);
+    if (!f.open("test.h2w", O_RDWR | O_CREAT | O_TRUNC)) {
+        M5.Display.setTextColor(TFT_RED, TFT_BLACK);
+        M5.Display.println("Open test.h2w failed");
+        waitForInput();
+        return;
+    }
 
     uint8_t buf[512];
     uint32_t limit = 50 * 1024 * 1024;
     uint32_t total = 0;
 
-    M5.Display.println("Writing...");
+    M5.Display.println("\nWriting...");
 
     while (total < limit) {
         uint32_t* p = (uint32_t*)buf;
         for (int i = 0; i < 128; i++) p[i] = total + i * 4;
 
-        if (f.write(buf, 512) != 512) break;
+        if (f.write(buf, 512) != 512) {
+            M5.Display.setTextColor(TFT_RED, TFT_BLACK);
+            M5.Display.println("\nWrite error");
+            break;
+        }
         total += 512;
 
         if (total % (1024 * 1024) == 0) {
-            M5.Display.setCursor(0, 30);
-            M5.Display.printf("%d MB", total / 1024 / 1024);
+            M5.Display.setCursor(0, 40);
+            M5.Display.printf("Written: %d MB   ", total / 1024 / 1024);
         }
 
         M5Cardputer.update();
-        if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) break;
+        if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
+            M5.Display.setCursor(0, 60);
+            M5.Display.println("\nAborted by user");
+            break;
+        }
     }
 
     f.sync();
     f.rewind();
 
-    M5.Display.println("\nVerifying...");
+    M5.Display.setCursor(0, 80);
+    M5.Display.println("Verifying...");
+
     uint32_t r = 0, err = 0;
 
     while (r < total) {
-        f.read(buf, 512);
-        uint32_t* p = (uint32_t*)buf;
+        int n = f.read(buf, 512);
+        if (n != 512) {
+            M5.Display.setTextColor(TFT_RED, TFT_BLACK);
+            M5.Display.println("\nRead error");
+            break;
+        }
 
+        uint32_t* p = (uint32_t*)buf;
         for (int i = 0; i < 128; i++) {
             if (p[i] != r + i * 4) err++;
         }
@@ -279,8 +329,15 @@ void runIntegrityCheck() {
         r += 512;
 
         if (r % (1024 * 1024) == 0) {
-            M5.Display.setCursor(0, 60);
-            M5.Display.printf("%d MB", r / 1024 / 1024);
+            M5.Display.setCursor(0, 100);
+            M5.Display.printf("Verified: %d MB   ", r / 1024 / 1024);
+        }
+
+        M5Cardputer.update();
+        if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
+            M5.Display.setCursor(0, 120);
+            M5.Display.println("\nAborted by user");
+            break;
         }
     }
 
@@ -289,7 +346,8 @@ void runIntegrityCheck() {
 
     M5.Display.fillScreen(err ? TFT_RED : TFT_GREEN);
     M5.Display.setCursor(0, 0);
-    M5.Display.printf("Result: %s\nErrors: %d", err ? "FAIL" : "PASS", err);
+    M5.Display.printf("Result: %s\nErrors: %d\n",
+                      err ? "FAIL" : "PASS", err);
 
     waitForInput();
 }
@@ -299,14 +357,24 @@ void runIntegrityCheck() {
 void runFormat() {
     M5.Display.fillScreen(TFT_BLACK);
     M5.Display.setCursor(0, 0);
-    M5.Display.println("ENTER to Format");
+    M5.Display.println("Quick Format\n");
+    M5.Display.println("ENTER: format   BKSP: abort");
 
+    // Wait for ENTER or BACKSPACE
     while (!M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
         M5Cardputer.update();
         if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
             currentState = MENU;
+            drawMenu();
             return;
         }
+        delay(10);
+    }
+
+    // Debounce ENTER
+    while (M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
+        M5Cardputer.update();
+        delay(10);
     }
 
     M5.Display.fillScreen(TFT_BLACK);
@@ -322,6 +390,7 @@ void runFormat() {
         M5.Display.setCursor(0, 20);
         M5.Display.printf("%c", spinner[spinIndex]);
         spinIndex = (spinIndex + 1) % 4;
+        M5Cardputer.update();
         delay(120);
     }
 
@@ -336,6 +405,26 @@ void runFormat() {
     if (ok && mounted) {
         M5.Display.setTextColor(TFT_GREEN, TFT_BLACK);
         M5.Display.println("Format OK");
+
+        uint8_t fs = sd.vol()->fatType();
+        if (fs == 32)
+            M5.Display.println("Filesystem: FAT32");
+        else if (fs == 16)
+            M5.Display.println("Filesystem: FAT16");
+        else if (fs == 12)
+            M5.Display.println("Filesystem: FAT12");
+        else
+            M5.Display.printf("Filesystem: FAT type %d\n", fs);
+
+        // Write a tiny test file
+        SdFile test;
+        if (test.open("format_ok.txt", O_RDWR | O_CREAT | O_TRUNC)) {
+            test.println("Cardputer SD Tool format check");
+            test.close();
+            M5.Display.println("Test file: format_ok.txt written");
+        } else {
+            M5.Display.println("Test file write FAILED");
+        }
     } else {
         M5.Display.setTextColor(TFT_RED, TFT_BLACK);
         M5.Display.println("Format Failed");
@@ -344,13 +433,24 @@ void runFormat() {
     waitForInput();
 }
 
-// --- Return to menu ---
+// --- Return to menu (ENTER = back, BKSP = abort) ---
 
 void waitForInput() {
-    while (!M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
+    M5.Display.println("\nPress ENTER to return");
+
+    // Debounce ENTER if currently held
+    while (M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
         M5Cardputer.update();
         delay(10);
     }
+
+    // Wait for ENTER (back) or BACKSPACE (abort)
+    while (!M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER) &&
+           !M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
+        M5Cardputer.update();
+        delay(10);
+    }
+
     currentState = MENU;
     drawMenu();
 }
