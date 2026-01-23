@@ -172,7 +172,7 @@ void showCardInfo() {
     if (fs == 32)
         M5.Display.println("Filesystem: FAT32 (OK)");
     else if (fs == 0xEF)   // exFAT volume type code
-        M5.Display.println("Filesystem: exFAT");
+    M5.Display.println("Filesystem: exFAT");
     else
         M5.Display.println("Filesystem: Unknown / Not Mounted");
 
