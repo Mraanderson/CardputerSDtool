@@ -424,6 +424,7 @@ void runIntegrityCheck() {
 
     f.sync();
     sd.card()->syncDevice();  // Ensure SPI flush
+    delay(200);
     f.rewind();
 
     // --- VERIFY PHASE ---
@@ -952,39 +953,44 @@ void runFormat() {
     }
 
     // --- Formatting Screen ---
-    M5.Display.fillScreen(TFT_BLACK);
-    M5.Display.setCursor(0, 0);
-    M5.Display.println(" Formatting...");
-    M5.Display.setCursor(0, 25);
-    M5.Display.println(" Please wait");
+M5.Display.fillScreen(TFT_BLACK);
+M5.Display.setCursor(0, 0);
+M5.Display.println(" Formatting...");
+M5.Display.setCursor(0, 25);
+M5.Display.println(" Please wait");
 
-    const char spinner[4] = {'|','/','-','\\'};
-    int spinIndex = 0;
+const char spinner[4] = {'|','/','-','\\'};
+int spinIndex = 0;
 
-    uint32_t start = millis();
+uint32_t start = millis();
 
-    // --- Perform quick format (silent) ---
-    bool ok = quickFormat(sd);
+// --- Perform quick format (silent) ---
+bool ok = quickFormat(sd);
 
-    // Spinner animation for ~2 seconds after format
-    while (millis() - start < 2000) {
-        M5.Display.setCursor(0, 50);
-        M5.Display.printf("%c", spinner[spinIndex]);
-        spinIndex = (spinIndex + 1) % 4;
-        M5Cardputer.update();
-        delay(120);
-    }
+// Spinner animation for ~2 seconds after format
+while (millis() - start < 2000) {
+    M5.Display.setCursor(0, 50);
+    M5.Display.printf("%c", spinner[spinIndex]);
+    spinIndex = (spinIndex + 1) % 4;
+    M5Cardputer.update();
+    delay(120);
+}
 
-    // --- FULL SD + SPI RESET (Cardputer ADV dedicated SD bus) ---
-    sd.end();
-    delay(50);
+// --- CRITICAL: flush controller + settle ---
+sd.card()->syncDevice();
+delay(200);
 
-    SPI.end();
-    delay(50);
+// --- FULL SD + SPI RESET (Cardputer ADV dedicated SD bus) ---
+sd.end();
+delay(50);
 
-    // Re‑initialise the dedicated SD SPI bus
-    SPI.begin(SD_SCK_PIN, SD_MISO_PIN, SD_MOSI_PIN, SD_CS_PIN);
-    delay(50);
+SPI.end();
+delay(50);
+
+// Re‑initialise the dedicated SD SPI bus
+SPI.begin(SD_SCK_PIN, SD_MISO_PIN, SD_MOSI_PIN, SD_CS_PIN);
+delay(50);
+
 
     // Remount using DEDICATED_SPI on HSPI
     bool mounted = sd.begin(SdSpiConfig(
