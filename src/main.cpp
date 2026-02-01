@@ -533,15 +533,18 @@ void runFormat() {
     uint64_t sectors = sd.card()->sectorCount();
     uint64_t sizeMB = (sectors * 512ULL) / (1024ULL * 1024ULL);
 
-    // --- FORCE FAT TYPE ---
-    if (sizeMB <= 2048) {
-        // 2GB or smaller → FAT16 is correct
-        ok = sd.format(&Serial);
+    if (sizeMB <= 32768) {  // ≤ 32GB
+        // Safe to format here
+        if (sizeMB <= 2048) {
+            ok = sd.format(&Serial);  // FAT16
+        } else {
+            FatFormatter fmt;
+            uint8_t secBuf[512];
+            ok = fmt.format(sd.card(), secBuf, &Serial);  // FAT32 on SDHC
+        }
     } else {
-        // Force FAT32 using FatFormatter
-        FatFormatter fmt;
-        uint8_t secBuf[512];   // required sector buffer
-        ok = fmt.format(sd.card(), secBuf, &Serial);
+        // 64GB+ SDXC → don’t pretend we can do this reliably
+        ok = false;
     }
 
     // Spinner animation for ~2 seconds
