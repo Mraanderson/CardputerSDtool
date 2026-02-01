@@ -37,7 +37,7 @@ State currentState = MENU;
 
 int menuIndex = 0;
 const char* menuItems[] = {
-    "1. Card Info (CID) WIP",
+    "1. Card Info (CID) - Working",
     "2. Speed Test - Working",
     "3. Integrity Check WIP",
     "4. Format (Quick) WIP",
@@ -200,13 +200,7 @@ void showCardInfo() {
         return; 
     }
 
-    {
-        M5.Display.setTextColor(TFT_RED, TFT_BLACK);
-        M5.Display.println("Filesystem mount failed");
-        waitForInput();
-        return;
-    }
-
+    
     cid_t cid;
     if (!sd.card()->readCID(&cid)) {
         M5.Display.setTextColor(TFT_RED, TFT_BLACK);
@@ -291,15 +285,15 @@ void runSpeedTest() {
     waitForInput();
 }
 
-// --- Integrity Check (H2TestW‑style) ---
-
+// --- Integrity Check (H2TestW‑style, fixed & Cardputer‑safe) ---
 void runIntegrityCheck() {
     M5.Display.fillScreen(TFT_BLACK);
     M5.Display.setCursor(0, 0);
     M5.Display.println("Integrity Check (50MB)\n");
-    M5.Display.println("ENTER: start   \n");
+    M5.Display.println("ENTER: start");
     M5.Display.println("BKSP: abort");
 
+    // Wait for ENTER or BACKSPACE
     while (!M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
         M5Cardputer.update();
         if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
@@ -310,14 +304,16 @@ void runIntegrityCheck() {
         delay(10);
     }
 
+    // Debounce ENTER
     while (M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
         M5Cardputer.update();
         delay(10);
     }
 
-    if (!initSD()) { 
-        waitForInput(); 
-        return; 
+    // Init SD
+    if (!initSD()) {
+        waitForInput();
+        return;
     }
 
     SdFile f;
@@ -329,28 +325,45 @@ void runIntegrityCheck() {
     }
 
     uint8_t buf[512];
-    uint32_t limit = 50 * 1024 * 1024;
+    uint32_t limit = 50 * 1024 * 1024;  // 50MB
     uint32_t total = 0;
+
+    // H2testw-style monotonic counter
+    uint32_t counter = 0;
 
     M5.Display.println("\nWriting...");
 
+    // --- WRITE PHASE ---
     while (total < limit) {
         uint32_t* p = (uint32_t*)buf;
-        for (int i = 0; i < 128; i++) p[i] = total + i * 4;
+
+        // Fill block with monotonic pattern
+        for (int i = 0; i < 128; i++) {
+            p[i] = counter++;
+        }
 
         if (f.write(buf, 512) != 512) {
             M5.Display.setTextColor(TFT_RED, TFT_BLACK);
             M5.Display.println("\nWrite error");
             break;
         }
+
         total += 512;
 
-        if (total % (1024 * 1024) == 0) {
+        // Update progress every 1MB
+        if ((total % (1024 * 1024)) == 0) {
             M5.Display.setCursor(0, 40);
             M5.Display.printf("Written: %d MB   ", total / 1024 / 1024);
+            M5Cardputer.update();
         }
 
-        M5Cardputer.update();
+        // Keep UI responsive
+        if ((total & 0xFFF) == 0) {
+            M5Cardputer.update();
+            delay(1);
+        }
+
+        // Abort
         if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
             M5.Display.setCursor(0, 60);
             M5.Display.println("\nAborted by user");
@@ -359,12 +372,16 @@ void runIntegrityCheck() {
     }
 
     f.sync();
+    sd.card()->syncDevice();  // Ensure SPI flush
     f.rewind();
 
+    // --- VERIFY PHASE ---
     M5.Display.setCursor(0, 80);
     M5.Display.println("Verifying...");
 
-    uint32_t r = 0, err = 0;
+    uint32_t r = 0;
+    uint32_t expected = 0;
+    uint32_t err = 0;
 
     while (r < total) {
         int n = f.read(buf, 512);
@@ -375,18 +392,30 @@ void runIntegrityCheck() {
         }
 
         uint32_t* p = (uint32_t*)buf;
+
+        // Compare block
         for (int i = 0; i < 128; i++) {
-            if (p[i] != r + i * 4) err++;
+            if (p[i] != expected++) {
+                err++;
+            }
         }
 
         r += 512;
 
-        if (r % (1024 * 1024) == 0) {
+        // Update progress every 1MB
+        if ((r % (1024 * 1024)) == 0) {
             M5.Display.setCursor(0, 100);
             M5.Display.printf("Verified: %d MB   ", r / 1024 / 1024);
+            M5Cardputer.update();
         }
 
-        M5Cardputer.update();
+        // Keep UI responsive
+        if ((r & 0xFFF) == 0) {
+            M5Cardputer.update();
+            delay(1);
+        }
+
+        // Abort
         if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
             M5.Display.setCursor(0, 120);
             M5.Display.println("\nAborted by user");
@@ -397,6 +426,7 @@ void runIntegrityCheck() {
     f.close();
     sd.remove("test.h2w");
 
+    // --- RESULT SCREEN ---
     M5.Display.fillScreen(err ? TFT_RED : TFT_GREEN);
     M5.Display.setCursor(0, 0);
     M5.Display.printf("Result: %s\nErrors: %d\n",
@@ -404,6 +434,7 @@ void runIntegrityCheck() {
 
     waitForInput();
 }
+
 
 // --- Format with spinner + remount ---
 
