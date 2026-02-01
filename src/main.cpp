@@ -6,6 +6,7 @@
 #include <M5Unified.h>
 #include <M5Cardputer.h>
 #include <SdFat.h>
+#include <FatLib/FatFormatter.h>
 
 // --- SD SPI Pins for Cardputer ADV ---
 #define SD_SCK_PIN   40
@@ -37,11 +38,11 @@ State currentState = MENU;
 
 int menuIndex = 0;
 const char* menuItems[] = {
-    "1. Card Info (CID)",
-    "2. Speed Test",
-    "3. Integrity Check",
-    "4. Format (Quick) WIP",
-    "5. Reboot"
+    " 1. Card Info",
+    " 2. Speed Test",
+    " 3. Integrity Check",
+    " 4. Format (Quick) WIP",
+    " 5. Reboot"
 };
 
 // --- Forward declarations ---
@@ -70,7 +71,9 @@ void requireCardRemovedAtStartup() {
     M5.Display.fillScreen(TFT_BLACK);
     M5.Display.setCursor(0, 0);
     M5.Display.setTextColor(TFT_RED, TFT_BLACK);
+    M5.Display.println("\n");
     M5.Display.println(" XXX SD CARD DETECTED XXX \n");
+    M5.Display.println("\n");
     M5.Display.setTextColor(TFT_GREEN, TFT_BLACK);
     M5.Display.println(" Please REMOVE the SD card\n");
     M5.Display.println(" DANGER of data loss\n");
@@ -457,7 +460,7 @@ void runIntegrityCheck() {
         // Update progress every 1MB
         if ((r % (1024 * 1024)) == 0) {
             M5.Display.setCursor(0, 45);
-            M5.Display.printf("Verified: %d MB   ", r / 1024 / 1024);
+            M5.Display.printf(" Verified: %d MB   ", r / 1024 / 1024);
             M5Cardputer.update();
         }
 
@@ -481,23 +484,22 @@ void runIntegrityCheck() {
     // --- RESULT SCREEN ---
     M5.Display.fillScreen(err ? TFT_RED : TFT_GREEN);
     M5.Display.setCursor(0, 0);
-    M5.Display.printf("Result: %s\nErrors: %d\n",
+    M5.Display.printf(" Result: %s\nErrors: %d\n",
                       err ? "FAIL" : "PASS", err);
 
     waitForInput();
 }
 
 
-// --- Format with spinner + remount ---
-
+// --- Quick Format ---
 void runFormat() {
     M5.Display.fillScreen(TFT_BLACK);
-    M5.Display.setCursor(0, 0);
+    M5.Display.setCursor(0, 10);
     M5.Display.println(" Quick Format\n");
-    M5.Display.println("\n");
-    M5.Display.println(" ENTER: format\n");
+    M5.Display.println(" ENTER: format");
     M5.Display.println(" BKSP: abort");
 
+    // Wait for ENTER or BACKSPACE
     while (!M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
         M5Cardputer.update();
         if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
@@ -508,33 +510,68 @@ void runFormat() {
         delay(10);
     }
 
+    // Debounce ENTER
     while (M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
         M5Cardputer.update();
         delay(10);
     }
 
+    // --- Formatting Screen ---
     M5.Display.fillScreen(TFT_BLACK);
     M5.Display.setCursor(0, 0);
     M5.Display.println(" Formatting...");
+    M5.Display.setCursor(0, 25);
+    M5.Display.println(" Please wait");
 
     const char spinner[4] = {'|','/','-','\\'};
     int spinIndex = 0;
 
-    bool ok = sd.format(&Serial);
+    uint32_t start = millis();
+    bool ok = false;
 
-    for (int i = 0; i < 20; i++) {
-        M5.Display.setCursor(0, 20);
+    // Determine card size
+    uint64_t sectors = sd.card()->sectorCount();
+    uint64_t sizeMB = (sectors * 512ULL) / (1024ULL * 1024ULL);
+
+    // --- FORCE FAT TYPE ---
+    if (sizeMB <= 2048) {
+        // 2GB or smaller → FAT16 is correct
+        ok = sd.format(&Serial);
+    } else {
+        // Force FAT32 using FatFormatter
+        FatFormatter fmt;
+        uint8_t secBuf[512];   // required sector buffer
+        ok = fmt.format(sd.card(), secBuf, &Serial);
+    }
+
+    // Spinner animation for ~2 seconds
+    while (millis() - start < 2000) {
+        M5.Display.setCursor(0, 50);
         M5.Display.printf("%c", spinner[spinIndex]);
         spinIndex = (spinIndex + 1) % 4;
         M5Cardputer.update();
         delay(120);
     }
 
+    // --- FULL SD + SPI RESET (critical for SDXC cards) ---
     sd.end();
-    delay(300);
+    delay(50);
 
-    bool mounted = sd.begin(SdSpiConfig(SD_CS_PIN, DEDICATED_SPI, SPI_CLOCK, &sdSpi));
+    SPI.end();
+    delay(50);
 
+    SPI.begin(SD_SCK_PIN, SD_MISO_PIN, SD_MOSI_PIN, SD_CS_PIN);
+    delay(50);
+
+    // Remount using SHARED_SPI
+    bool mounted = sd.begin(SdSpiConfig(
+        SD_CS_PIN,
+        SHARED_SPI,
+        SD_SCK_MHZ(20),
+        &sdSpi
+    ));
+
+    // --- Result Screen ---
     M5.Display.fillScreen(TFT_BLACK);
     M5.Display.setCursor(0, 0);
 
@@ -543,30 +580,28 @@ void runFormat() {
         M5.Display.println("Format OK");
 
         uint8_t fs = sd.vol()->fatType();
-        if (fs == 32)
-            M5.Display.println("Filesystem: FAT32");
-        else if (fs == 16)
-            M5.Display.println("Filesystem: FAT16");
-        else if (fs == 12)
-            M5.Display.println("Filesystem: FAT12");
-        else
-            M5.Display.printf("Filesystem: FAT type %d\n", fs);
+        M5.Display.setCursor(0, 20);
+        M5.Display.printf("Filesystem: FAT%d\n", fs);
 
         SdFile test;
         if (test.open("format_ok.txt", O_RDWR | O_CREAT | O_TRUNC)) {
             test.println("Cardputer SD Tool format check");
             test.close();
-            M5.Display.println("Test file: format_ok.txt written");
+            M5.Display.println(" Test file written");
         } else {
-            M5.Display.println("Test file write FAILED");
+            M5.Display.println(" Test file FAILED");
         }
+
     } else {
         M5.Display.setTextColor(TFT_RED, TFT_BLACK);
         M5.Display.println("Format Failed");
+        M5.Display.setCursor(0, 20);
+        M5.Display.println("Card init failed");
     }
 
     waitForInput();
 }
+
 
 // --- Return to menu ---
 void waitForInput() {
@@ -597,3 +632,33 @@ void waitForInput() {
     currentState = MENU;
     drawMenu();
 }
+
+/*
+ * NOTE FOR FUTURE DEVELOPMENT — SD CARD CAPACITY VERIFICATION
+ * -----------------------------------------------------------
+ * The current Integrity Check writes/reads a fixed 50MB region.
+ * This verifies DATA INTEGRITY (detects corruption, weak flash,
+ * controller issues, SPI instability), but it does NOT verify
+ * the TRUE CAPACITY of the SD card.
+ *
+ * To detect FAKE-CAPACITY cards (e.g., 128GB cards that are
+ * really 8GB and wrap around), a full-card write/verify is
+ * required — OR a faster statistical method:
+ *
+ *   ✔ Write small probe blocks at RANDOM OFFSETS across the
+ *     advertised capacity.
+ *   ✔ Read them back and compare.
+ *   ✔ If any probe wraps into earlier physical storage, the
+ *     card is fake or misreporting its size.
+ *
+ * This "Random Capacity Probe" method is fast, low-wear, and
+ * suitable for embedded devices like the Cardputer ADV.
+ *
+ * TODO (future):
+ *   - Implement random-offset probe testing
+ *   - Add menu option: "Capacity Probe (Fast)"
+ *   - Add confidence scoring based on number of probes
+ *   - Optionally add full-card test for thorough validation
+ *
+ * Circle back when ready to extend the SD Tool.
+ */
