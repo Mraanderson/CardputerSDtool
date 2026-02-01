@@ -1,85 +1,254 @@
+/**
+ * M5Stack Cardputer ADV - SD Card Tool
+ * Features: CID Info, Speed Test, Integrity Check, Quick Format
+ */
+
+#include <M5Unified.h>
 #include <M5Cardputer.h>
 #include <SdFat.h>
 
-// Pins
+// --- SD SPI Pins for Cardputer ADV ---
 #define SD_SCK_PIN   40
 #define SD_MISO_PIN  39
 #define SD_MOSI_PIN  14
-#define SD_CS_PIN    12
-#define SPI_CLOCK SD_SCK_MHZ(25)
+static const int SD_CS_PIN = 12;
 
-// Global Objects
+#define SPI_CLOCK SD_SCK_MHZ(20)
+
 SdFat sd;
 SPIClass sdSpi(HSPI);
-int menuIndex = 0;
-const char* menuItems[] = {
-    "1. Card Info (CID)",
-    "2. Speed Test",
-    "3. Integrity Check",
-    "4. Format (Quick)",
-    "5. Reboot"
-};
+
+// --- Key helpers ---
+inline bool isUp(char k)    { return k == ';'; }
+inline bool isDown(char k)  { return k == '.'; }
+
+char pollKey() {
+    const char keys[] = { ';', '.', 0 };
+    for (int i = 0; keys[i]; i++) {
+        if (M5Cardputer.Keyboard.isKeyPressed(keys[i])) {
+            return keys[i];
+        }
+    }
+    return 0;
+}
 
 enum State { MENU, INFO, SPEED, H2TEST, FORMAT };
 State currentState = MENU;
 
-// --- Forward Declarations ---
+int menuIndex = 0;
+const char* menuItems[] = {
+    "1. Card Info (CID) WIP",
+    "2. Speed Test - Working",
+    "3. Integrity Check WIP",
+    "4. Format (Quick) WIP",
+    "5. Reboot"
+};
+
+// --- Forward declarations ---
 void drawMenu();
 void showCardInfo();
 void runSpeedTest();
 void runIntegrityCheck();
 void runFormat();
 void waitForInput();
+bool initSD();
 
-bool initSD() {
-    // Note: use the global sdSpi we initialized in setup
-    if (!sd.begin(SdSpiConfig(SD_CS_PIN, SHARED_SPI, SPI_CLOCK, &sdSpi))) {
-        return false;
+// ------------------------------------------------------------
+// NEW: Require SD card removal at startup
+// ------------------------------------------------------------
+void requireCardRemovedAtStartup() {
+    // Try a non-blocking check first
+    bool cardPresent = sd.cardBegin(
+    SdSpiConfig(SD_CS_PIN, SHARED_SPI, SD_SCK_MHZ(20), &sdSpi)
+);
+
+    if (!cardPresent) {
+        return; // No card inserted, continue normally
     }
-    return true;
+
+    // Card detected — warn user
+    M5.Display.fillScreen(TFT_BLACK);
+    M5.Display.setCursor(0, 0);
+    M5.Display.setTextColor(TFT_RED, TFT_BLACK);
+    M5.Display.println(" XXX SD CARD DETECTED XXX \n");
+    M5.Display.setTextColor(TFT_GREEN, TFT_BLACK);
+    M5.Display.println("Please REMOVE the SD card\n");
+    M5.Display.println("to avoid accidental data loss.\n");
+    M5.Display.println("Waiting for removal...");
+
+    // Wait until card is removed
+    while (true) {
+        M5Cardputer.update();
+        delay(200);
+
+        if (!sd.cardBegin(SdSpiConfig(SD_CS_PIN, SHARED_SPI, SPI_CLOCK, &sdSpi))) {
+            break;
+        }
+    }
+
+    M5.Display.fillScreen(TFT_BLACK);
+    M5.Display.setCursor(0, 0);
+    M5.Display.setTextColor(TFT_GREEN, TFT_BLACK);
+    M5.Display.println("SD card removed.");
+    M5.Display.println("Starting SD Tool...");
+    delay(800);
 }
 
+// ------------------------------------------------------------
+
 void setup() {
-    auto cfg = M5.config();
-    M5Cardputer.begin(cfg);
+    M5Cardputer.begin();
     M5.Display.setRotation(1);
-    M5.Display.setTextSize(1);
+    M5.Display.setTextSize(1.5);
     M5.Display.setTextColor(TFT_GREEN, TFT_BLACK);
 
-    // Initialize Global SPI
     sdSpi.begin(SD_SCK_PIN, SD_MISO_PIN, SD_MOSI_PIN, SD_CS_PIN);
-    
+
+    // NEW: Safety check before showing menu
+    requireCardRemovedAtStartup();
+
     drawMenu();
 }
 
 void loop() {
     M5Cardputer.update();
-    
+    char key = pollKey();
+
     if (currentState == MENU) {
-        if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
-            if (M5Cardputer.Keyboard.isKeyPressed(';')) { 
-                menuIndex = (menuIndex + 4) % 5;
-                drawMenu();
+
+        if (isUp(key)) {
+            menuIndex = (menuIndex + 4) % 5;
+            drawMenu();
+            delay(150);
+        }
+
+        if (isDown(key)) {
+            menuIndex = (menuIndex + 1) % 5;
+            drawMenu();
+            delay(150);
+        }
+
+        if (M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
+            while (M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
+                M5Cardputer.update();
+                delay(10);
             }
-            else if (M5Cardputer.Keyboard.isKeyPressed('.')) {
-                menuIndex = (menuIndex + 1) % 5;
-                drawMenu();
-            }
-            else if (M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
-                switch (menuIndex) {
-                    case 0: currentState = INFO;   showCardInfo();      break;
-                    case 1: currentState = SPEED;  runSpeedTest();      break;
-                    case 2: currentState = H2TEST; runIntegrityCheck(); break;
-                    case 3: currentState = FORMAT; runFormat();         break;
-                    case 4: ESP.restart();                               break;
-                }
+
+            switch (menuIndex) {
+                case 0: currentState = INFO;   showCardInfo();      break;
+                case 1: currentState = SPEED;  runSpeedTest();      break;
+                case 2: currentState = H2TEST; runIntegrityCheck(); break;
+                case 3: currentState = FORMAT; runFormat();         break;
+                case 4: ESP.restart();                               break;
             }
         }
+
+    } else if (currentState == MENU &&
+           M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
+
+        currentState = MENU;
+        drawMenu();
+        delay(150);
     }
 }
 
-// ... Rest of your UI and Tool logic follows here ...
+// --- UI ---
 
+void drawMenu() {
+    M5.Display.fillScreen(TFT_BLACK);
+    M5.Display.setCursor(0, 0);
+    M5.Display.println("=== SD TOOL ADV ===");
+    M5.Display.println("ENTER: select/back\n");
+    M5.Display.println("BKSP: abort\n");
+
+    for (int i = 0; i < 5; i++) {
+        bool sel = (i == menuIndex);
+        M5.Display.setTextColor(sel ? TFT_BLACK : TFT_GREEN,
+                                sel ? TFT_WHITE : TFT_BLACK);
+        M5.Display.println(menuItems[i]);
+    }
+
+    M5.Display.setTextColor(TFT_GREEN, TFT_BLACK);
+}
+
+// --- SD Init ---
+
+bool initSD() {
+    SdSpiConfig cfg(
+        SD_CS_PIN,
+        SHARED_SPI,          // Cardputer uses shared SPI bus
+        SD_SCK_MHZ(20),      // Safe speed for ADV
+        &sdSpi
+    );
+
+    if (!sd.begin(cfg)) {
+        M5.Display.setTextColor(TFT_RED, TFT_BLACK);
+        M5.Display.println("SD Init Failed!");
+        return false;
+    }
+    return true;
+}
+
+// --- Card Info ---
+
+void showCardInfo() {
+    M5.Display.fillScreen(TFT_BLACK);
+    M5.Display.setCursor(0, 0);
+
+    if (!initSD()) { 
+        waitForInput(); 
+        return; 
+    }
+
+    {
+        M5.Display.setTextColor(TFT_RED, TFT_BLACK);
+        M5.Display.println("Filesystem mount failed");
+        waitForInput();
+        return;
+    }
+
+    cid_t cid;
+    if (!sd.card()->readCID(&cid)) {
+        M5.Display.setTextColor(TFT_RED, TFT_BLACK);
+        M5.Display.println("Read CID Failed");
+        waitForInput();
+        return;
+    }
+
+    const char* maker = "Unknown";
+    switch (cid.mid) {
+        case 0x03: maker = "SanDisk";        break;
+        case 0x1B: maker = "Samsung";        break;
+        case 0x1D: maker = "Kingston";       break;
+        case 0x27: maker = "Phison";         break;
+        case 0x28: maker = "Lexar";          break;
+        case 0x31: maker = "Silicon Power";  break;
+    }
+
+    uint64_t sizeMB =
+        (uint64_t)sd.card()->sectorCount() * 512ULL / 1024ULL / 1024ULL;
+
+    M5.Display.printf("Manufacturer: %s\n", maker);
+    M5.Display.printf("Product Name: %c%c%c%c%c\n",
+        cid.pnm[0], cid.pnm[1], cid.pnm[2], cid.pnm[3], cid.pnm[4]);
+
+    M5.Display.printf("Capacity: %llu MB\n", sizeMB);
+
+    uint8_t fs = sd.fatType();
+    M5.Display.print("Filesystem: ");
+    switch (fs) {
+       case FAT_TYPE_EXFAT: M5.Display.println("exFAT"); break;
+       case 32:             M5.Display.println("FAT32"); break;
+       case 16:             M5.Display.println("FAT16"); break;
+       case 12:             M5.Display.println("FAT12"); break;
+       default:             M5.Display.println("Unknown"); break;
+    }
+
+    M5.Display.printf("\nMID: 0x%02X\n", cid.mid);
+    M5.Display.printf("OID: %c%c\n", cid.oid[0], cid.oid[1]);
+
+    waitForInput();
+}
 
 // --- Speed Test ---
 
@@ -112,9 +281,7 @@ void runSpeedTest() {
 
     f.rewind();
     s = millis();
-    while (f.read(buf, 4096) > 0) {
-        // could add M5Cardputer.update() here if needed
-    }
+    while (f.read(buf, 4096) > 0) {}
     float readTime = (millis() - s) / 1000.0f;
     M5.Display.printf("Read:  %.2f MB/s\n", 5.0f / readTime);
 
@@ -130,9 +297,9 @@ void runIntegrityCheck() {
     M5.Display.fillScreen(TFT_BLACK);
     M5.Display.setCursor(0, 0);
     M5.Display.println("Integrity Check (50MB)\n");
-    M5.Display.println("ENTER: start   BKSP: abort");
+    M5.Display.println("ENTER: start   \n");
+    M5.Display.println("BKSP: abort");
 
-    // Wait for ENTER to start or BACKSPACE to abort
     while (!M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
         M5Cardputer.update();
         if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
@@ -143,7 +310,6 @@ void runIntegrityCheck() {
         delay(10);
     }
 
-    // Debounce ENTER
     while (M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
         M5Cardputer.update();
         delay(10);
@@ -245,9 +411,10 @@ void runFormat() {
     M5.Display.fillScreen(TFT_BLACK);
     M5.Display.setCursor(0, 0);
     M5.Display.println("Quick Format\n");
-    M5.Display.println("ENTER: format   BKSP: abort");
+    M5.Display.println("\n");
+    M5.Display.println("ENTER: format\n");
+    M5.Display.println("BKSP: abort");
 
-    // Wait for ENTER or BACKSPACE
     while (!M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
         M5Cardputer.update();
         if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
@@ -258,7 +425,6 @@ void runFormat() {
         delay(10);
     }
 
-    // Debounce ENTER
     while (M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
         M5Cardputer.update();
         delay(10);
@@ -303,7 +469,6 @@ void runFormat() {
         else
             M5.Display.printf("Filesystem: FAT type %d\n", fs);
 
-        // Write a tiny test file
         SdFile test;
         if (test.open("format_ok.txt", O_RDWR | O_CREAT | O_TRUNC)) {
             test.println("Cardputer SD Tool format check");
@@ -320,20 +485,25 @@ void runFormat() {
     waitForInput();
 }
 
-// --- Return to menu (ENTER = back, BKSP = abort) ---
-
+// --- Return to menu ---
 void waitForInput() {
     M5.Display.println("\nPress ENTER to return");
 
-    // Debounce ENTER if currently held
+    // Wait for ENTER to be released if it's currently held
     while (M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
         M5Cardputer.update();
         delay(10);
     }
 
-    // Wait for ENTER (back) or BACKSPACE (abort)
+    // Wait for ENTER (or BACKSPACE) to be pressed
     while (!M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER) &&
            !M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
+        M5Cardputer.update();
+        delay(10);
+    }
+
+    // NEW: Wait for ENTER to be released again before returning to menu
+    while (M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
         M5Cardputer.update();
         delay(10);
     }
