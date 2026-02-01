@@ -1000,6 +1000,16 @@ delay(50);
         &sdSpi
     ));
 
+    if (!mounted) {
+        delay(150);
+        mounted = sd.begin(SdSpiConfig(
+            SD_CS_PIN,
+            DEDICATED_SPI,
+            SD_SCK_MHZ(20),
+            &sdSpi
+        ));
+    } 
+
     // --- Result Screen ---
     M5.Display.fillScreen(TFT_BLACK);
     M5.Display.setCursor(0, 0);
