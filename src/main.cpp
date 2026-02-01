@@ -60,7 +60,7 @@ bool initSD();
 void requireCardRemovedAtStartup() {
     // Try a non-blocking check first
     bool cardPresent = sd.cardBegin(
-    SdSpiConfig(SD_CS_PIN, SHARED_SPI, SD_SCK_MHZ(20), &sdSpi)
+    SdSpiConfig(SD_CS_PIN, DEDICATED_SPI, SD_SCK_MHZ(20), &sdSpi)
 );
 
     if (!cardPresent) {
@@ -553,23 +553,25 @@ void runFormat() {
         delay(120);
     }
 
-    // --- FULL SD + SPI RESET (critical for SDXC cards) ---
+    // --- FULL SD + SPI RESET (Cardputer ADV dedicated SD bus) ---
     sd.end();
     delay(50);
 
     SPI.end();
     delay(50);
 
+    // Re‑initialise the dedicated SD SPI bus
     SPI.begin(SD_SCK_PIN, SD_MISO_PIN, SD_MOSI_PIN, SD_CS_PIN);
     delay(50);
 
-    // Remount using SHARED_SPI
+    // Remount using DEDICATED_SPI
     bool mounted = sd.begin(SdSpiConfig(
         SD_CS_PIN,
-        SHARED_SPI,
+        DEDICATED_SPI,
         SD_SCK_MHZ(20),
         &sdSpi
     ));
+
 
     // --- Result Screen ---
     M5.Display.fillScreen(TFT_BLACK);
