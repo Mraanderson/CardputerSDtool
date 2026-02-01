@@ -1,89 +1,132 @@
-Cardputer‑ADV SD Card Tool (Prototype)
-A work‑in‑progress SD diagnostics utility for the M5Stack Cardputer‑ADV (StampS3A).
-This tool is under active development and not fully tested. Expect bugs, incomplete features, and behaviour that varies depending on SD card brand, capacity, and filesystem.
-The goal is to provide a lightweight, portable SD diagnostics suite that runs directly on the Cardputer‑ADV — no PC required.
+# Cardputer‑ADV SD Card Tool (Prototype)
 
-Overview
-This project provides a standalone SD card utility offering:
+A lightweight, work‑in‑progress SD diagnostics utility for the **M5Stack Cardputer‑ADV (StampS3A)**.  
+This tool runs entirely on‑device — no PC required — and aims to provide practical, real‑world SD card testing and formatting capabilities tailored to the Cardputer‑ADV’s unique SPI behaviour.
+
+This project is **experimental**. Expect quirks, incomplete features, and behaviour that varies by SD card brand, age, and filesystem.
+
+---
+
+## ✨ Overview
+
+The Cardputer‑ADV SD Tool provides:
+
 - SD card information (manufacturer, product name, capacity)
 - Filesystem detection (FAT32, FAT16, exFAT, Unknown)
 - Raw CID field display for advanced users
 - Speed test (simple write/read benchmark)
 - Integrity check (H2TestW‑style 50MB write/verify)
-- Quick format (SdFat quick format + remount)
-- Keyboard‑driven UI
+- Quick format (SdFat‑based quick format + remount)
+- Keyboard‑driven UI designed for the Cardputer‑ADV
 
-## Feature Status
+The goal is to build a **portable SD diagnostics suite** that helps users understand card health, performance, and compatibility directly from the device.
 
-| Feature               | Status            | Notes                                           |
-|-----------------------|-------------------|-------------------------------------------------|
-| SD Card Information   | Stable            | Manufacturer lookup, PNM, capacity, CID fields  |
-|                       | Partially reliable 🔴| Occasional SD re-init failures after format     | 
-| Speed Test            | Partially reliable 🔴| Write speed then needs freezes and needs reset  |
-| Integrity Check       | Known issues   🔴   | Slow; no progress bar                           | 
-| Quick Format          | Stable      🟡      | SdFat quick format + automatic remount          | 
-| Reboot                | Stable       🟢      |                                                 |
-| Navigation / UI       | Stable         🟢    | Scroll speed may feel fast                      |
-| SPI Stability         | Uncertain    🟡     | Varies by card brand and age                    | 
-| Card Health Metrics   | Not implemented  ⚪  | CSD/SCR parsing planned                         |
-| Filesystem Detection  | Needs testing  🟡    | exFAT depends on SdFat configuration            |
+---
 
-Legend:
+## 📊 Feature Status
+
+| Feature               | Status        | Notes                                                   |
+|-----------------------|---------------|---------------------------------------------------------|
+| SD Card Information   | 🟢 Stable     | Manufacturer lookup, PNM, capacity, CID fields          |
+| Filesystem Detection  | 🟡 Needs testing | exFAT depends on SdFat configuration                    |
+| Speed Test            | 🟢 Stable     | Occasional freezes; may require device reset            |
+| Integrity Check       | 🟢 Stable     | Slow; no progress bar; fixed 50MB test size             |
+| Quick Format          | 🟡 Needs testing | SdFat quick format + remount; re‑init can be flaky      |
+| Navigation / UI       | 🟢 Stable     | Scroll speed may feel fast                              |
+| Reboot                | 🟢 Stable     |                                                         |
+| SPI Stability         | 🟡 Uncertain  | Varies by card brand, age, and controller behaviour     |
+| Card Health Metrics   | ⚪ Not implemented | CSD/SCR parsing planned                                 |
+
+**Legend:**  
 🟢 Stable 🟡 Needs testing 🔴 Known issues ⚪ Not implemented
 
-Current Status
-Prototype – not fully validated
-Some features work reliably, others require more testing across different SD cards and capacities. Behaviour may vary depending on:
-- Card brand
-- Card age/health
-- Filesystem type
-- SPI bus stability
-- SdFat configuration
-This repository is intended for experimentation, feedback, and iteration.
+---
 
-Features
-SD Card Information
-- Manufacturer lookup (SanDisk, Samsung, Kingston, Phison, Lexar, SP)
+## 📌 Current Status
+
+**Prototype — not fully validated.**
+
+Some features behave consistently across multiple cards; others depend heavily on:
+
+- Card brand and controller
+- Card age and wear
+- Filesystem type (FAT32 vs exFAT)
+- SPI bus stability on the Cardputer‑ADV
+- SdFat configuration and caching behaviour
+
+This repository is intended for experimentation, testing, and community feedback.
+
+---
+
+## 🧩 Features in Detail
+
+### **SD Card Information**
+- Manufacturer lookup (SanDisk, Samsung, Kingston, Lexar, Phison, SP, etc.)
 - Product name (PNM)
 - Capacity in MB
 - Filesystem detection
-- Raw CID fields (MID, OID)
-Speed Test
-- Writes 5MB in 4096‑byte blocks
-- Reads back the same file
-- Reports MB/s
-Integrity Check
+- Raw CID fields (MID, OID, PNM, PRV, PSN)
+
+### **Speed Test**
+- Writes a 5MB file in 4096‑byte blocks
+- Reads it back
+- Reports write/read MB/s
+- Useful for spotting failing or counterfeit cards
+
+### **Integrity Check**
 - Writes 50MB of patterned data
 - Verifies every 512‑byte block
 - Reports PASS/FAIL and error count
-Quick Format
+- Inspired by H2TestW / F3
+
+### **Quick Format**
 - SdFat quick format
 - Spinner animation
 - Automatic SD remount
 - Filesystem detection after format
-Navigation
-- ; → Up
-- . → Down
-- ENTER → Select
-- BACKSPACE → Return to menu
 
-Known Issues
+### **Navigation**
+- `;` → Up  
+- `.` → Down  
+- `ENTER` → Select  
+- `BACKSPACE` → Return to menu  
+
+---
+
+## ⚠ Known Issues
+
 - Speed test may fail to re‑initialise SD after formatting
-- Menu scroll speed may feel too fast
-- exFAT detection depends on SdFat build configuration
-- No progress bar for long operations
-- No SPI auto‑speed fallback
-- No card health metrics (erase block size, CSD/SCR parsing)
+- exFAT detection depends on SdFat build options  
+- No progress bar for long operations  
+- No SPI auto‑speed fallback  
+- No card health metrics (erase block size, CSD/SCR parsing)  
+- Some SD cards require additional settle time after raw writes  
 
+---
 
-Build Instructions (PlatformIO)
-- Install PlatformIO (VSCode recommended)
-- Clone this repository
-- Open the folder in VSCode
-- Build & upload using PlatformIO: Upload
-- Insert an SD card and reboot the Cardputer‑ADV
+## 🛠 Build Instructions (PlatformIO)
 
+1. Install PlatformIO (VSCode recommended)
+2. Clone this repository
+3. Open the folder in VSCode
+4. Build & upload using **PlatformIO: Upload**
 
-Contributions
-Bug reports, test results, and pull requests are welcome.
-Testing across a wide range of SD cards and capacities is especially valuable.
+---
+
+## 🤝 Contributions
+
+Contributions, bug reports, and test results are welcome.
+
+Testing across a wide range of SD cards — especially older, slower, or off‑brand models — is extremely valuable.  
+Pull requests for new diagnostics, UI improvements, or SPI stability fixes are encouraged.
+
+---
+
+## 🗺 Roadmap (Planned)
+
+- CSD/SCR parsing for card health metrics  
+- More robust SPI fallback logic  
+- Progress bars for long operations  
+- Extended integrity test options  
+- exFAT read‑only inspection  
+- Optional full‑card wipe / zero‑fill  
