@@ -37,8 +37,8 @@ State currentState = MENU;
 
 int menuIndex = 0;
 const char* menuItems[] = {
-    "1. Card Info (CID) - Working",
-    "2. Speed Test - Working",
+    "1. Card Info (CID)",
+    "2. Speed Test",
     "3. Integrity Check WIP",
     "4. Format (Quick) WIP",
     "5. Reboot"
