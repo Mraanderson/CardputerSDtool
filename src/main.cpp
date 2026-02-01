@@ -39,7 +39,7 @@ int menuIndex = 0;
 const char* menuItems[] = {
     "1. Card Info (CID)",
     "2. Speed Test",
-    "3. Integrity Check WIP",
+    "3. Integrity Check",
     "4. Format (Quick) WIP",
     "5. Reboot"
 };
@@ -249,7 +249,7 @@ void showCardInfo() {
 void runSpeedTest() {
     M5.Display.fillScreen(TFT_BLACK);
     M5.Display.setCursor(0, 0);
-    M5.Display.println("Speed Test\n");
+    M5.Display.println(" Speed Test\n");
 
     if (!initSD()) { 
         waitForInput(); 
@@ -285,12 +285,16 @@ void runSpeedTest() {
     waitForInput();
 }
 
-// --- Integrity Check (H2TestW‑style, fixed & Cardputer‑safe) ---
+// --- Integrity Check (H2TestW‑style, Cardputer‑optimised layout) ---
 void runIntegrityCheck() {
     M5.Display.fillScreen(TFT_BLACK);
     M5.Display.setCursor(0, 0);
-    M5.Display.println("Integrity Check (50MB)\n");
+    M5.Display.println("Integrity Check (50MB)");
+
+    M5.Display.setCursor(0, 20);
     M5.Display.println("ENTER: start");
+
+    M5.Display.setCursor(0, 35);
     M5.Display.println("BKSP: abort");
 
     // Wait for ENTER or BACKSPACE
@@ -319,6 +323,7 @@ void runIntegrityCheck() {
     SdFile f;
     if (!f.open("test.h2w", O_RDWR | O_CREAT | O_TRUNC)) {
         M5.Display.setTextColor(TFT_RED, TFT_BLACK);
+        M5.Display.setCursor(0, 60);
         M5.Display.println("Open test.h2w failed");
         waitForInput();
         return;
@@ -331,9 +336,14 @@ void runIntegrityCheck() {
     // H2testw-style monotonic counter
     uint32_t counter = 0;
 
-    M5.Display.println("\nWriting...");
-
     // --- WRITE PHASE ---
+    M5.Display.fillScreen(TFT_BLACK);
+    M5.Display.setCursor(0, 0);
+    M5.Display.println("Writing blocks...");
+
+    M5.Display.setCursor(0, 25);
+    M5.Display.println("Progress:");
+
     while (total < limit) {
         uint32_t* p = (uint32_t*)buf;
 
@@ -344,7 +354,8 @@ void runIntegrityCheck() {
 
         if (f.write(buf, 512) != 512) {
             M5.Display.setTextColor(TFT_RED, TFT_BLACK);
-            M5.Display.println("\nWrite error");
+            M5.Display.setCursor(0, 60);
+            M5.Display.println("Write error");
             break;
         }
 
@@ -352,7 +363,7 @@ void runIntegrityCheck() {
 
         // Update progress every 1MB
         if ((total % (1024 * 1024)) == 0) {
-            M5.Display.setCursor(0, 40);
+            M5.Display.setCursor(0, 45);
             M5.Display.printf("Written: %d MB   ", total / 1024 / 1024);
             M5Cardputer.update();
         }
@@ -365,8 +376,8 @@ void runIntegrityCheck() {
 
         // Abort
         if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
-            M5.Display.setCursor(0, 60);
-            M5.Display.println("\nAborted by user");
+            M5.Display.setCursor(0, 70);
+            M5.Display.println("Aborted by user");
             break;
         }
     }
@@ -376,8 +387,12 @@ void runIntegrityCheck() {
     f.rewind();
 
     // --- VERIFY PHASE ---
-    M5.Display.setCursor(0, 80);
-    M5.Display.println("Verifying...");
+    M5.Display.fillScreen(TFT_BLACK);
+    M5.Display.setCursor(0, 0);
+    M5.Display.println("Verifying blocks...");
+
+    M5.Display.setCursor(0, 25);
+    M5.Display.println("Progress:");
 
     uint32_t r = 0;
     uint32_t expected = 0;
@@ -387,7 +402,8 @@ void runIntegrityCheck() {
         int n = f.read(buf, 512);
         if (n != 512) {
             M5.Display.setTextColor(TFT_RED, TFT_BLACK);
-            M5.Display.println("\nRead error");
+            M5.Display.setCursor(0, 60);
+            M5.Display.println("Read error");
             break;
         }
 
@@ -404,7 +420,7 @@ void runIntegrityCheck() {
 
         // Update progress every 1MB
         if ((r % (1024 * 1024)) == 0) {
-            M5.Display.setCursor(0, 100);
+            M5.Display.setCursor(0, 45);
             M5.Display.printf("Verified: %d MB   ", r / 1024 / 1024);
             M5Cardputer.update();
         }
@@ -417,8 +433,8 @@ void runIntegrityCheck() {
 
         // Abort
         if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
-            M5.Display.setCursor(0, 120);
-            M5.Display.println("\nAborted by user");
+            M5.Display.setCursor(0, 70);
+            M5.Display.println("Aborted by user");
             break;
         }
     }
@@ -520,25 +536,28 @@ void runFormat() {
 void waitForInput() {
     M5.Display.println("\nPress ENTER to return");
 
-    // Wait for ENTER to be released if it's currently held
-    while (M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
+    // 1. Wait for ANY key release (ENTER or BACKSPACE)
+    while (M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER) ||
+           M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
         M5Cardputer.update();
         delay(10);
     }
 
-    // Wait for ENTER (or BACKSPACE) to be pressed
+    // 2. Wait for a NEW key press
     while (!M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER) &&
            !M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
         M5Cardputer.update();
         delay(10);
     }
 
-    // NEW: Wait for ENTER to be released again before returning to menu
-    while (M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
+    // 3. Debounce whichever key was pressed
+    while (M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER) ||
+           M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
         M5Cardputer.update();
         delay(10);
     }
 
+    // 4. Return to menu cleanly
     currentState = MENU;
     drawMenu();
 }
